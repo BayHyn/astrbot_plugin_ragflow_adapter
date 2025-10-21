@@ -1,4 +1,5 @@
 import asyncio
+import httpx
 from pathlib import Path
 
 from astrbot.api.event import filter, AstrMessageEvent
@@ -6,8 +7,9 @@ from astrbot.api.star import Context, Star, register
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.api import logger
 from astrbot.core.star.star_tools import StarTools
+from astrbot.api.provider import ProviderRequest
 
-@register("astrbot_plugin_ragflow_adapter", "RC-CHN", "使用RAGFlow检索增强生成", "v0.1")
+@register("astrbot_plugin_ragflow_adapter", "RC-CHN", "使用RAGFlow检索增强生成", "v0.2")
 class RAGFlowAdapterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -21,6 +23,7 @@ class RAGFlowAdapterPlugin(Star):
         self.ragflow_kb_ids = []
         self.enable_query_rewrite = False
         self.query_rewrite_provider_key = ""
+        self.rag_injection_method = "system_prompt"
 
     def _mask_sensitive_info(self, info: str, keep_last: int = 6) -> str:
         """隐藏敏感信息，只显示最后几位。"""
@@ -40,6 +43,7 @@ class RAGFlowAdapterPlugin(Star):
         self.ragflow_kb_ids = self.config.get("ragflow_kb_ids", [])
         self.enable_query_rewrite = self.config.get("enable_query_rewrite", False)
         self.query_rewrite_provider_key = self.config.get("query_rewrite_provider_key", "")
+        self.rag_injection_method = self.config.get("rag_injection_method", "system_prompt")
 
         # 打印日志
         logger.info("RAGFlow 适配器插件已初始化。")
@@ -52,7 +56,31 @@ class RAGFlowAdapterPlugin(Star):
         logger.info(f"  启用查询重写: {'是' if self.enable_query_rewrite else '否'}")
         if self.enable_query_rewrite:
             logger.info(f"  查询重写 Provider: {self.query_rewrite_provider_key or '未指定'}")
+        logger.info(f"  RAG 内容注入方式: {self.rag_injection_method}")
 
+    def _inject_content_into_request(self, req: "ProviderRequest", content: str):
+        """
+        根据配置，将指定内容注入到 ProviderRequest 对象中。
+        """
+        if not content:
+            return
+
+        # 统一的 RAG 内容模板
+        rag_prompt_template = f"--- 以下是参考资料 ---\n{content}\n--- 请根据以上资料回答问题 ---"
+
+        if self.rag_injection_method == "user_prompt":
+            req.prompt = f"{rag_prompt_template}\n\n{req.prompt}"
+            logger.debug("RAG content injected into user_prompt.")
+        elif self.rag_injection_method == "insert_system_prompt":
+            # 插入到倒数第二的位置，确保在用户最新消息之前
+            req.contexts.insert(-1, {"role": "system", "content": rag_prompt_template})
+            logger.debug("RAG content inserted as a new system message.")
+        else: # 默认为 system_prompt
+            if req.system_prompt:
+                req.system_prompt = f"{req.system_prompt}\n\n{rag_prompt_template}"
+            else:
+                req.system_prompt = rag_prompt_template
+            logger.debug("RAG content injected into system_prompt.")
 
     async def _rewrite_query(self, original_query: str) -> str:
         """
@@ -60,6 +88,7 @@ class RAGFlowAdapterPlugin(Star):
         如果未启用或未配置，则返回原始查询。
         """
         if not self.enable_query_rewrite:
+            logger.debug("查询重写未启用，跳过。")
             return original_query
 
         if not self.query_rewrite_provider_key:
@@ -88,42 +117,66 @@ class RAGFlowAdapterPlugin(Star):
 
     async def _query_ragflow(self, query: str) -> str:
         """
-        (占位符) 使用给定的查询与 RAGFlow API 进行交互。
-        此方法需要被实现。
+        使用给定的查询与 RAGFlow API 进行交互，并返回拼接好的上下文。
         """
         if not all([self.ragflow_base_url, self.ragflow_api_key, self.ragflow_kb_ids]):
-            return "RAGFlow 未完全配置，请检查插件设置。"
+            logger.warning("RAGFlow 未完全配置，跳过检索。")
+            return ""
 
-        # TODO: 在此处实现对 RAGFlow 的真实 API 调用
-        # 通常你会使用 'httpx' 或 'aiohttp' 这样的库
-        logger.info(f"正在查询 RAGFlow: URL={self.ragflow_base_url}, KB_IDs={self.ragflow_kb_ids}, Query='{query}'")
-        
-        # 这是一个占位符响应
-        await asyncio.sleep(1) # 模拟网络延迟
-        return f"这是一个来自 RAGFlow 的占位符响应，查询内容为: '{query}'"
+        url = f"{self.ragflow_base_url.rstrip('/')}/api/v1/retrieval"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.ragflow_api_key}",
+        }
+        data = {
+            "question": query,
+            "dataset_ids": self.ragflow_kb_ids,
+            "top_k": 5, # 默认检索3条
+            "similarity_threshold": 0.35
+        }
 
-    @filter.command("retrieve")
-    async def retrieve_command(self, event: AstrMessageEvent, content: str):
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, headers=headers, json=data, timeout=30.0)
+                response.raise_for_status()
+                
+                api_data = response.json()
+                if api_data.get("code") != 0:
+                    logger.error(f"RAGFlow API 返回错误: {api_data}")
+                    return ""
+
+                chunks = api_data.get("data", {}).get("chunks", [])
+                if not chunks:
+                    logger.info("RAGFlow 未检索到相关内容。")
+                    return ""
+
+                # 拼接所有 content 字段
+                retrieved_content = "\n\n".join([chunk.get("content", "") for chunk in chunks])
+                logger.info(f"成功从 RAGFlow 检索到 {len(chunks)} 条内容。")
+                logger.debug(f"检索到的内容: \n{retrieved_content}")
+                return retrieved_content
+
+        except httpx.RequestError as e:
+            logger.error(f"请求 RAGFlow API 时出错: {e}", exc_info=True)
+            return ""
+        except Exception as e:
+            logger.error(f"处理 RAGFlow 响应时发生未知错误: {e}", exc_info=True)
+            return ""
+
+    @filter.on_llm_request()
+    async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         """
-        使用 RAGFlow 执行 RAG 查询。
-        用法: /retrieve <你的问题>
+        在 LLM 请求前，自动执行 RAG 检索并注入上下文。
         """
-        if not content:
-            yield event.plain_result("请输入您的问题。用法: /retrieve <你的问题>")
-            return
-
-        yield event.plain_result("正在处理您的问题...")
-
-        # 1. 如果启用，则重写查询
-        final_query = await self._rewrite_query(content)
-        if final_query != content:
-            yield event.plain_result(f"优化后的问题: {final_query}")
+        # 1. 重写查询
+        final_query = await self._rewrite_query(req.prompt)
 
         # 2. 查询 RAGFlow
-        response = await self._query_ragflow(final_query)
+        rag_content = await self._query_ragflow(final_query)
 
-        # 3. 发送响应
-        yield event.plain_result(response)
+        # 3. 注入内容
+        if rag_content:
+            self._inject_content_into_request(req, rag_content)
 
     async def terminate(self):
         """

@@ -24,5 +24,12 @@
         "type": "string",
         "default": "",
         "_special": "select_provider"
+    },
+    "rag_injection_method": {
+        "description": "RAG 检索内容的注入方式",
+        "type": "string",
+        "hint": "user_prompt: 注入用户消息前; system_prompt: 注入系统消息; insert_system_prompt: 作为新的系统消息插入",
+        "options": ["user_prompt", "system_prompt", "insert_system_prompt"],
+        "default": "system_prompt"
     }
 }
