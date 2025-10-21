@@ -5,6 +5,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.api import logger
+from astrbot.core.star.star_tools import StarTools
 
 @register("astrbot_plugin_ragflow_adapter", "RC-CHN", "使用RAGFlow检索增强生成", "v0.1")
 class RAGFlowAdapterPlugin(Star):
@@ -12,7 +13,7 @@ class RAGFlowAdapterPlugin(Star):
         super().__init__(context)
         self.context = context
         self.config = config
-        self.plugin_data_dir: Path = self.get_data_dir()
+        self.plugin_data_dir: Path = StarTools.get_data_dir()
 
         # 初始化配置变量
         self.ragflow_base_url = ""
