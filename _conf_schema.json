@@ -1,0 +1,28 @@
+{
+    "ragflow_base_url": {
+        "description": "RAGFlow 服务的 API 地址",
+        "type": "string",
+        "default": "http://127.0.0.1:8000/"
+    },
+    "ragflow_api_key": {
+        "description": "RAGFlow 的 API Key",
+        "type": "string",
+        "default": ""
+    },
+    "ragflow_kb_ids": {
+        "description": "要查询的 RAGFlow 知识库 ID 列表",
+        "type": "list",
+        "default": []
+    },
+    "enable_query_rewrite": {
+        "description": "是否启用查询重写以优化用户输入",
+        "type": "bool",
+        "default": false
+    },
+    "query_rewrite_provider_key": {
+        "description": "用于查询重写的 LLM Provider",
+        "type": "string",
+        "default": "",
+        "__special__": "select_provider"
+    }
+}

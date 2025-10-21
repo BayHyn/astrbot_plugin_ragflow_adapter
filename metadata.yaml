@@ -1,0 +1,5 @@
+name: astrbot_plugin_ragflow_adapter
+desc: 使用RAGFlow检索增强生成
+version: v0.1
+author: RC-CHN
+repo: https://github.com/RC-CHN/astrbot_plugin_ragflow_adapter
