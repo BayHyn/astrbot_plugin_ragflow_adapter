@@ -23,6 +23,6 @@
         "description": "用于查询重写的 LLM Provider",
         "type": "string",
         "default": "",
-        "__special__": "select_provider"
+        "_special": "select_provider"
     }
 }
