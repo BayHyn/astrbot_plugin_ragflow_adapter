@@ -9,6 +9,7 @@ from astrbot.api import logger
 from astrbot.core.star.star_tools import StarTools
 from astrbot.api.provider import ProviderRequest
 
+
 @register("astrbot_plugin_ragflow_adapter", "RC-CHN", "使用RAGFlow检索增强生成", "v0.2")
 class RAGFlowAdapterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -16,6 +17,7 @@ class RAGFlowAdapterPlugin(Star):
         self.context = context
         self.config = config
         self.plugin_data_dir: Path = StarTools.get_data_dir()
+        self.session_message_counts = {}
 
         # 初始化配置变量
         self.ragflow_base_url = ""
@@ -24,6 +26,14 @@ class RAGFlowAdapterPlugin(Star):
         self.enable_query_rewrite = False
         self.query_rewrite_provider_key = ""
         self.rag_injection_method = "system_prompt"
+
+        # 归档功能配置
+        self.rag_archive_enabled = False
+        self.rag_archive_dataset_id = ""
+        self.rag_archive_threshold = 40
+        self.rag_archive_summarize_enabled = False
+        self.rag_archive_summarize_persona_id = ""
+        self.rag_archive_summarize_provider_id = ""
 
     def _mask_sensitive_info(self, info: str, keep_last: int = 6) -> str:
         """隐藏敏感信息，只显示最后几位。"""
@@ -36,27 +46,51 @@ class RAGFlowAdapterPlugin(Star):
         初始化插件，加载并打印配置。
         """
         self.plugin_data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 加载配置
         self.ragflow_base_url = self.config.get("ragflow_base_url", "")
         self.ragflow_api_key = self.config.get("ragflow_api_key", "")
         self.ragflow_kb_ids = self.config.get("ragflow_kb_ids", [])
-        self.enable_query_rewrite = self.config.get("enable_query_rewrite", False)
-        self.query_rewrite_provider_key = self.config.get("query_rewrite_provider_key", "")
-        self.rag_injection_method = self.config.get("rag_injection_method", "system_prompt")
+        self.enable_query_rewrite = self.config.get(
+            "enable_query_rewrite", False)
+        self.query_rewrite_provider_key = self.config.get(
+            "query_rewrite_provider_key", "")
+        self.rag_injection_method = self.config.get(
+            "rag_injection_method", "system_prompt")
+
+        # 加载归档配置
+        self.rag_archive_enabled = self.config.get("rag_archive_enabled", False)
+        self.rag_archive_dataset_id = self.config.get("rag_archive_dataset_id", "")
+        self.rag_archive_threshold = self.config.get("rag_archive_threshold", 40)
+        self.rag_archive_summarize_enabled = self.config.get("rag_archive_summarize_enabled", False)
+        self.rag_archive_summarize_persona_id = self.config.get("rag_archive_summarize_persona_id", "")
+        self.rag_archive_summarize_provider_id = self.config.get("rag_archive_summarize_provider_id", "")
 
         # 打印日志
         logger.info("RAGFlow 适配器插件已初始化。")
         logger.info(f"  RAGFlow API 地址: {self.ragflow_base_url}")
-        logger.info(f"  RAGFlow API Key: {self._mask_sensitive_info(self.ragflow_api_key)}")
-        
-        masked_kb_ids = [self._mask_sensitive_info(str(kid)) for kid in self.ragflow_kb_ids]
+        logger.info(
+            f"  RAGFlow API Key: {self._mask_sensitive_info(self.ragflow_api_key)}")
+
+        masked_kb_ids = [self._mask_sensitive_info(
+            str(kid)) for kid in self.ragflow_kb_ids]
         logger.info(f"  RAGFlow 知识库 ID: {masked_kb_ids}")
-        
+
         logger.info(f"  启用查询重写: {'是' if self.enable_query_rewrite else '否'}")
         if self.enable_query_rewrite:
-            logger.info(f"  查询重写 Provider: {self.query_rewrite_provider_key or '未指定'}")
+            logger.info(
+                f"  查询重写 Provider: {self.query_rewrite_provider_key or '未指定'}")
         logger.info(f"  RAG 内容注入方式: {self.rag_injection_method}")
+
+        # 打印归档配置日志
+        logger.info(f"  启用自动归档: {'是' if self.rag_archive_enabled else '否'}")
+        if self.rag_archive_enabled:
+            logger.info(f"    归档数据集 ID: {self.rag_archive_dataset_id}")
+            logger.info(f"    归档消息阈值: {self.rag_archive_threshold}")
+            logger.info(f"    归档前总结: {'是' if self.rag_archive_summarize_enabled else '否'}")
+            if self.rag_archive_summarize_enabled:
+                logger.info(f"      总结 Persona: {self.rag_archive_summarize_persona_id or '未指定'}")
+                logger.info(f"      总结 Provider: {self.rag_archive_summarize_provider_id or '未指定'}")
 
     def _inject_content_into_request(self, req: "ProviderRequest", content: str):
         """
@@ -73,9 +107,10 @@ class RAGFlowAdapterPlugin(Star):
             logger.debug("RAG content injected into user_prompt.")
         elif self.rag_injection_method == "insert_system_prompt":
             # 插入到倒数第二的位置，确保在用户最新消息之前
-            req.contexts.insert(-1, {"role": "system", "content": rag_prompt_template})
+            req.contexts.insert(-1, {"role": "system",
+                                "content": rag_prompt_template})
             logger.debug("RAG content inserted as a new system message.")
-        else: # 默认为 system_prompt
+        else:  # 默认为 system_prompt
             if req.system_prompt:
                 req.system_prompt = f"{req.system_prompt}\n\n{rag_prompt_template}"
             else:
@@ -95,9 +130,11 @@ class RAGFlowAdapterPlugin(Star):
             logger.warning("查询重写已启用，但未选择 Provider。跳过重写。")
             return original_query
 
-        provider = self.context.get_provider_by_id(self.query_rewrite_provider_key)
+        provider = self.context.get_provider_by_id(
+            self.query_rewrite_provider_key)
         if not provider:
-            logger.error(f"找不到用于查询重写的 Provider (ID: '{self.query_rewrite_provider_key}')。跳过重写。")
+            logger.error(
+                f"找不到用于查询重写的 Provider (ID: '{self.query_rewrite_provider_key}')。跳过重写。")
             return original_query
 
         prompt = f"""你是一个为检索系统优化查询的专家。你的任务是将用户的日常对话问题，转换成一个简洁、充满关键词、适合向量检索的查询语句。
@@ -125,7 +162,7 @@ class RAGFlowAdapterPlugin(Star):
 现在，请处理以下问题。请直接返回优化后的问题，不要包含任何解释或引言。
 原始问题：{original_query}
 优化后的问题："""
-        
+
         try:
             llm_resp = await provider.text_chat(prompt=prompt)
             if llm_resp and llm_resp.completion_text:
@@ -155,7 +192,7 @@ class RAGFlowAdapterPlugin(Star):
         data = {
             "question": query,
             "dataset_ids": self.ragflow_kb_ids,
-            "top_k": 5, # 默认检索3条
+            "top_k": 5,  # 默认检索3条
             "similarity_threshold": 0.35
         }
 
@@ -163,7 +200,7 @@ class RAGFlowAdapterPlugin(Star):
             async with httpx.AsyncClient() as client:
                 response = await client.post(url, headers=headers, json=data, timeout=30.0)
                 response.raise_for_status()
-                
+
                 api_data = response.json()
                 if api_data.get("code") != 0:
                     logger.error(f"RAGFlow API 返回错误: {api_data}")
@@ -175,7 +212,8 @@ class RAGFlowAdapterPlugin(Star):
                     return ""
 
                 # 拼接所有 content 字段
-                retrieved_content = "\n\n".join([chunk.get("content", "") for chunk in chunks])
+                retrieved_content = "\n\n".join(
+                    [chunk.get("content", "") for chunk in chunks])
                 logger.info(f"成功从 RAGFlow 检索到 {len(chunks)} 条内容。")
                 logger.debug(f"检索到的内容: \n{retrieved_content}")
                 return retrieved_content
@@ -201,6 +239,29 @@ class RAGFlowAdapterPlugin(Star):
         # 3. 注入内容
         if rag_content:
             self._inject_content_into_request(req, rag_content)
+
+        # 4. 处理自动归档逻辑
+        if self.rag_archive_enabled:
+            session_id = event.get_session_id()
+            count = self.session_message_counts.get(session_id, 0) + 1
+            self.session_message_counts[session_id] = count
+            logger.debug(f"会话 '{session_id}' 消息计数: {count}/{self.rag_archive_threshold}")
+
+            if count >= self.rag_archive_threshold:
+                logger.info(f"会话 '{session_id}' 达到归档阈值，准备归档...")
+                # 使用 create_task 在后台执行归档，避免阻塞当前请求
+                asyncio.create_task(self._archive_conversation(event))
+                self.session_message_counts[session_id] = 0
+                logger.info(f"会话 '{session_id}' 消息计数器已重置。")
+
+    async def _archive_conversation(self, event: AstrMessageEvent):
+        """
+        将当前会话的近期对话历史进行归档。
+        (此功能将在后续步骤中完整实现)
+        """
+        logger.info(f"触发了会话 {event.get_session_id()} 的归档流程。")
+        # TODO: 实现获取对话历史、总结、上传的逻辑
+        await asyncio.sleep(1)  # 模拟异步操作
 
     async def terminate(self):
         """
