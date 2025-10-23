@@ -33,7 +33,7 @@ def inject_content_into_request(plugin: "RAGFlowAdapterPlugin", req: "ProviderRe
     elif plugin.rag_injection_method == "insert_system_prompt":
         # 插入到倒数第二的位置，确保在用户最新消息之前
         req.contexts.insert(-1, {"role": "system",
-                              "content": rag_prompt_template})
+                                 "content": rag_prompt_template})
         logger.debug("RAG content inserted as a new system message.")
     else:  # 默认为 system_prompt
         if req.system_prompt:

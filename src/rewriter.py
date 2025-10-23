@@ -17,10 +17,12 @@ class QueryRewriterBase:
 
     async def _get_completion(self, prompt: str) -> str:
         """使用传入的 provider 生成回答"""
-        logger.debug(f"发送到 LLM 的 Prompt: \n---PROMPT---\n{prompt}\n---END PROMPT---")
+        logger.debug(
+            f"发送到 LLM 的 Prompt: \n---PROMPT---\n{prompt}\n---END PROMPT---")
         try:
             resp = await self.provider.text_chat(prompt=prompt)
-            completion_text = resp.completion_text.strip() if resp and resp.completion_text else ""
+            completion_text = resp.completion_text.strip(
+            ) if resp and resp.completion_text else ""
             logger.debug(f"从 LLM 收到的原始响应: {completion_text}")
             return completion_text
         except Exception as e:
@@ -128,22 +130,24 @@ class MultiIntentRewriter(QueryRewriterBase):
                 return [query]
 
             try:
-                cleaned_response = response.strip().replace("```json", "").replace("```", "").strip()
+                cleaned_response = response.strip().replace(
+                    "```json", "").replace("```", "").strip()
                 result = json.loads(cleaned_response)
                 if isinstance(result, list):
                     return result
                 else:
                     raise TypeError("JSON响应不是一个列表。")
             except (json.JSONDecodeError, TypeError) as e:
-                logger.warning(f"无法解析多意图分解器的JSON响应 (Attempt {attempt + 1}): {e}")
+                logger.warning(
+                    f"无法解析多意图分解器的JSON响应 (Attempt {attempt + 1}): {e}")
                 if attempt == 0:
                     logger.info("将重试LLM调用以获取有效的JSON。")
-                    await asyncio.sleep(1) # 短暂等待后重试
+                    await asyncio.sleep(1)  # 短暂等待后重试
                 else:
                     # 第二次尝试仍然失败，回退
                     logger.error("在重试后，多意图分解器仍无法解析JSON响应，将使用原始响应作为查询。")
                     return [response]
-        
+
         # 如果循环因意外情况结束，则回退
         return [query]
 
@@ -216,7 +220,8 @@ class QueryTypeDetector(QueryRewriterBase):
                 break
 
             try:
-                cleaned_response = response.strip().replace("```json", "").replace("```", "").strip()
+                cleaned_response = response.strip().replace(
+                    "```json", "").replace("```", "").strip()
                 result = json.loads(cleaned_response)
                 if isinstance(result, dict) and "query_type" in result:
                     logger.debug(f"查询类型检测结果: {result}")
@@ -224,14 +229,15 @@ class QueryTypeDetector(QueryRewriterBase):
                 else:
                     raise TypeError("JSON响应格式不正确。")
             except (json.JSONDecodeError, TypeError) as e:
-                logger.warning(f"无法解析查询类型检测器的JSON响应 (Attempt {attempt + 1}): {e}")
+                logger.warning(
+                    f"无法解析查询类型检测器的JSON响应 (Attempt {attempt + 1}): {e}")
                 if attempt == 0:
                     logger.info("将重试LLM调用以获取有效的JSON。")
-                    await asyncio.sleep(1) # 短暂等待后重试
+                    await asyncio.sleep(1)  # 短暂等待后重试
                 else:
                     # 第二次尝试仍然失败，跳出循环使用回退逻辑
                     break
-        
+
         # 如果所有尝试都失败，则回退
         logger.warning("在重试后，查询类型检测器仍无法解析JSON响应，将回退到'普通型'。")
         return {

@@ -58,12 +58,18 @@ class RAGFlowAdapterPlugin(Star):
             "rag_injection_method", "system_prompt")
 
         # 加载归档配置
-        self.rag_archive_enabled = self.config.get("rag_archive_enabled", False)
-        self.rag_archive_dataset_id = self.config.get("rag_archive_dataset_id", "")
-        self.rag_archive_threshold = self.config.get("rag_archive_threshold", 40)
-        self.rag_archive_summarize_enabled = self.config.get("rag_archive_summarize_enabled", False)
-        self.rag_archive_summarize_persona_id = self.config.get("rag_archive_summarize_persona_id", "")
-        self.rag_archive_summarize_provider_id = self.config.get("rag_archive_summarize_provider_id", "")
+        self.rag_archive_enabled = self.config.get(
+            "rag_archive_enabled", False)
+        self.rag_archive_dataset_id = self.config.get(
+            "rag_archive_dataset_id", "")
+        self.rag_archive_threshold = self.config.get(
+            "rag_archive_threshold", 40)
+        self.rag_archive_summarize_enabled = self.config.get(
+            "rag_archive_summarize_enabled", False)
+        self.rag_archive_summarize_persona_id = self.config.get(
+            "rag_archive_summarize_persona_id", "")
+        self.rag_archive_summarize_provider_id = self.config.get(
+            "rag_archive_summarize_provider_id", "")
 
         # 打印日志
         logger.info("RAGFlow 适配器插件已初始化。")
@@ -86,10 +92,13 @@ class RAGFlowAdapterPlugin(Star):
         if self.rag_archive_enabled:
             logger.info(f"    归档数据集 ID: {self.rag_archive_dataset_id}")
             logger.info(f"    归档消息阈值: {self.rag_archive_threshold}")
-            logger.info(f"    归档前总结: {'是' if self.rag_archive_summarize_enabled else '否'}")
+            logger.info(
+                f"    归档前总结: {'是' if self.rag_archive_summarize_enabled else '否'}")
             if self.rag_archive_summarize_enabled:
-                logger.info(f"      总结 Persona: {self.rag_archive_summarize_persona_id or '未指定'}")
-                logger.info(f"      总结 Provider: {self.rag_archive_summarize_provider_id or '未指定'}")
+                logger.info(
+                    f"      总结 Persona: {self.rag_archive_summarize_persona_id or '未指定'}")
+                logger.info(
+                    f"      总结 Provider: {self.rag_archive_summarize_provider_id or '未指定'}")
 
     def _setup_rewriter(self):
         """初始化查询重写管理器"""
@@ -125,7 +134,8 @@ class RAGFlowAdapterPlugin(Star):
         rewritten_queries = []
         if self.enable_query_rewrite and self.query_rewrite_manager:
             # 假设历史记录可以通过 event 或 req 获取，这里用一个 placeholder
-            conversation_history = "" # await self._get_formatted_history(event)
+            # await self._get_formatted_history(event)
+            conversation_history = ""
             rewritten_result = await self.query_rewrite_manager.rewrite_query(req.prompt, conversation_history)
             if isinstance(rewritten_result, list):
                 rewritten_queries.extend(rewritten_result)
@@ -152,7 +162,8 @@ class RAGFlowAdapterPlugin(Star):
             session_id = event.get_session_id()
             count = self.session_message_counts.get(session_id, 0) + 1
             self.session_message_counts[session_id] = count
-            logger.debug(f"会话 '{session_id}' 消息计数: {count}/{self.rag_archive_threshold}")
+            logger.debug(
+                f"会话 '{session_id}' 消息计数: {count}/{self.rag_archive_threshold}")
 
             if count >= self.rag_archive_threshold:
                 logger.info(f"会话 '{session_id}' 达到归档阈值，准备归档...")
