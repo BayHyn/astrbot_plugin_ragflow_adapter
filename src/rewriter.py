@@ -1,4 +1,5 @@
 import json
+import asyncio
 from typing import TYPE_CHECKING, Any, Dict, List, Union
 from astrbot.api import logger
 
@@ -118,13 +119,33 @@ class MultiIntentRewriter(QueryRewriterBase):
 ### 分解后的问题列表 ###
 请以JSON数组格式输出，例如：["问题1", "问题2", "问题3"]
 """
-        response = await self._get_completion(prompt)
-        try:
-            # The response might be in a markdown code block, so we need to clean it.
-            cleaned_response = response.strip().replace("```json", "").replace("```", "").strip()
-            return json.loads(cleaned_response)
-        except (json.JSONDecodeError, TypeError):
-            return [response]
+        # 尝试解析JSON，如果失败则重试一次LLM调用
+        for attempt in range(2):
+            response = await self._get_completion(prompt)
+            if not response:
+                # 如果LLM调用失败，直接回退
+                logger.error("多意图分解器未能从LLM获取响应。")
+                return [query]
+
+            try:
+                cleaned_response = response.strip().replace("```json", "").replace("```", "").strip()
+                result = json.loads(cleaned_response)
+                if isinstance(result, list):
+                    return result
+                else:
+                    raise TypeError("JSON响应不是一个列表。")
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"无法解析多意图分解器的JSON响应 (Attempt {attempt + 1}): {e}")
+                if attempt == 0:
+                    logger.info("将重试LLM调用以获取有效的JSON。")
+                    await asyncio.sleep(1) # 短暂等待后重试
+                else:
+                    # 第二次尝试仍然失败，回退
+                    logger.error("在重试后，多意图分解器仍无法解析JSON响应，将使用原始响应作为查询。")
+                    return [response]
+        
+        # 如果循环因意外情况结束，则回退
+        return [query]
 
 
 class RhetoricalRewriter(QueryRewriterBase):
@@ -186,18 +207,37 @@ class QueryTypeDetector(QueryRewriterBase):
 
 ### 分析结果 (JSON) ###
 """
-        response = await self._get_completion(prompt)
-        try:
-            cleaned_response = response.strip().replace("```json", "").replace("```", "").strip()
-            result = json.loads(cleaned_response)
-            logger.debug(f"查询类型检测结果: {result}")
-            return result
-        except (json.JSONDecodeError, TypeError):
-            logger.warning(f"无法解析查询类型检测器的JSON响应: {response}")
-            return {
-                "query_type": "普通型",
-                "confidence": 0.5
-            }
+        # 尝试解析JSON，如果失败则重试一次LLM调用
+        for attempt in range(2):
+            response = await self._get_completion(prompt)
+            if not response:
+                # 如果LLM调用失败，直接回退
+                logger.error("查询类型检测器未能从LLM获取响应。")
+                break
+
+            try:
+                cleaned_response = response.strip().replace("```json", "").replace("```", "").strip()
+                result = json.loads(cleaned_response)
+                if isinstance(result, dict) and "query_type" in result:
+                    logger.debug(f"查询类型检测结果: {result}")
+                    return result
+                else:
+                    raise TypeError("JSON响应格式不正确。")
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"无法解析查询类型检测器的JSON响应 (Attempt {attempt + 1}): {e}")
+                if attempt == 0:
+                    logger.info("将重试LLM调用以获取有效的JSON。")
+                    await asyncio.sleep(1) # 短暂等待后重试
+                else:
+                    # 第二次尝试仍然失败，跳出循环使用回退逻辑
+                    break
+        
+        # 如果所有尝试都失败，则回退
+        logger.warning("在重试后，查询类型检测器仍无法解析JSON响应，将回退到'普通型'。")
+        return {
+            "query_type": "普通型",
+            "confidence": 0.5
+        }
 
 
 class QueryRewriteManager:
@@ -218,7 +258,7 @@ class QueryRewriteManager:
         query_type = detection_result.get('query_type', '普通型')
         logger.info(f"原始查询: '{query}', 检测到的类型: '{query_type}'")
 
-        rewritten_query: Union[str, List[str]]
+        rewritten_query: Union[str, List[str]] = ""
 
         if '上下文依赖' in query_type:
             rewritten_query = await self.context_rewriter.rewrite(query, conversation_history)
@@ -233,6 +273,11 @@ class QueryRewriteManager:
         else:
             # 对于“普通型”或无法识别的类型，返回原始查询
             rewritten_query = query
-        
+
+        # 如果重写失败（返回空），则回退到原始查询
+        if not rewritten_query:
+            logger.warning(f"查询重写失败或返回空结果，将使用原始查询: '{query}'")
+            rewritten_query = query
+
         logger.info(f"最终改写结果: {rewritten_query}")
         return rewritten_query
