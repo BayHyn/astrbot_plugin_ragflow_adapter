@@ -7,9 +7,10 @@ from astrbot.api.star import Context, Star, register
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.api import logger
 from astrbot.core.star.star_tools import StarTools
-from astrbot.api.provider import ProviderRequest
+from astrbot.api.provider import ProviderRequest, Provider
 
 from .src import helpers
+from .src.rewriter import QueryRewriteManager
 
 
 @register("astrbot_plugin_ragflow_adapter", "RC-CHN", "使用RAGFlow检索增强生成", "v0.2")
@@ -20,6 +21,8 @@ class RAGFlowAdapterPlugin(Star):
         self.config = config
         self.plugin_data_dir: Path = StarTools.get_data_dir()
         self.session_message_counts = {}
+        self.query_rewrite_manager: QueryRewriteManager = None
+        self.rewrite_provider: Provider = None
 
         # 初始化配置变量
         self.ragflow_base_url = ""
@@ -88,20 +91,61 @@ class RAGFlowAdapterPlugin(Star):
                 logger.info(f"      总结 Persona: {self.rag_archive_summarize_persona_id or '未指定'}")
                 logger.info(f"      总结 Provider: {self.rag_archive_summarize_provider_id or '未指定'}")
 
+    def _setup_rewriter(self):
+        """初始化查询重写管理器"""
+        if not self.query_rewrite_provider_key:
+            logger.warning("查询重写已启用，但未选择 Provider。跳过初始化。")
+            return
+
+        self.rewrite_provider = self.context.get_provider_by_id(
+            self.query_rewrite_provider_key)
+
+        if not self.rewrite_provider:
+            logger.error(
+                f"找不到用于查询重写的 Provider (ID: '{self.query_rewrite_provider_key}')。查询重写功能将不可用。")
+            return
+
+        self.query_rewrite_manager = QueryRewriteManager(self.rewrite_provider)
+        logger.info("查询重写管理器已成功初始化。")
+
+    @filter.on_astrbot_loaded()
+    async def on_astrbot_loaded(self):
+        """
+        AstrBot 加载完成后，初始化查询重写器。
+        """
+        if self.enable_query_rewrite:
+            self._setup_rewriter()
+
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest):
         """
         在 LLM 请求前，自动执行 RAG 检索并注入上下文。
         """
         # 1. 重写查询
-        final_query = await helpers.rewrite_query(self, req.prompt)
+        rewritten_queries = []
+        if self.enable_query_rewrite and self.query_rewrite_manager:
+            # 假设历史记录可以通过 event 或 req 获取，这里用一个 placeholder
+            conversation_history = "" # await self._get_formatted_history(event)
+            rewritten_result = await self.query_rewrite_manager.rewrite_query(req.prompt, conversation_history)
+            if isinstance(rewritten_result, list):
+                rewritten_queries.extend(rewritten_result)
+            else:
+                rewritten_queries.append(rewritten_result)
+            logger.info(f"查询已重写: '{req.prompt}' -> {rewritten_queries}")
+        else:
+            rewritten_queries.append(req.prompt)
 
-        # 2. 查询 RAGFlow
-        rag_content = await helpers.query_ragflow(self, final_query)
+        # 2. 对每个重写后的查询执行 RAGFlow 检索
+        all_rag_content = []
+        for query in rewritten_queries:
+            content = await helpers.query_ragflow(self, query)
+            if content:
+                all_rag_content.append(content)
 
         # 3. 注入内容
-        if rag_content:
-            helpers.inject_content_into_request(self, req, rag_content)
+        if all_rag_content:
+            final_rag_content = "\n\n---\n\n".join(all_rag_content)
+            helpers.inject_content_into_request(self, req, final_rag_content)
 
         # 4. 处理自动归档逻辑
         if self.rag_archive_enabled:

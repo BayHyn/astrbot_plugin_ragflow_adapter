@@ -43,66 +43,6 @@ def inject_content_into_request(plugin: "RAGFlowAdapterPlugin", req: "ProviderRe
         logger.debug("RAG content injected into system_prompt.")
 
 
-async def rewrite_query(plugin: "RAGFlowAdapterPlugin", original_query: str) -> str:
-    """
-    使用指定的大语言模型优化用户查询，以获得更好的检索结果。
-    如果未启用或未配置，则返回原始查询。
-    """
-    if not plugin.enable_query_rewrite:
-        logger.debug("查询重写未启用，跳过。")
-        return original_query
-
-    if not plugin.query_rewrite_provider_key:
-        logger.warning("查询重写已启用，但未选择 Provider。跳过重写。")
-        return original_query
-
-    provider = plugin.context.get_provider_by_id(
-        plugin.query_rewrite_provider_key)
-    if not provider:
-        logger.error(
-            f"找不到用于查询重写的 Provider (ID: '{plugin.query_rewrite_provider_key}')。跳过重写。")
-        return original_query
-
-    prompt = f"""你是一个为检索系统优化查询的专家。你的任务是将用户的日常对话问题，转换成一个简洁、充满关键词、适合向量检索的查询语句。
-
-一个好的查询应该：
-- 提取核心实体和术语。
-- 移除无关的口语化表达（例如“你好”、“请问一下”）。
-- 将模糊的指代（例如“那个东西”）转换为具体的名称。
-
-这里有几个例子：
-
-# 示例 1
-原始问题：我们上次会议提到的那个新功能，关于用户自定义首页的，现在进度如何了？
-优化后的问题：用户自定义首页功能开发进度与计划
-
-# 示例 2
-原始问题：最近有什么关于全球变暖对北极熊影响的研究吗？
-优化后的问题：全球气候变暖对北极熊栖息地、繁殖和捕食行为的影响研究
-
-# 示例 3
-原始问题：公司新出的那个报销政策具体是怎么规定的？特别是差旅费方面。
-优化后的问题：公司最新差旅费用报销政策标准与流程
-
----
-现在，请处理以下问题。请直接返回优化后的问题，不要包含任何解释或引言。
-原始问题：{original_query}
-优化后的问题："""
-
-    try:
-        llm_resp = await provider.text_chat(prompt=prompt)
-        if llm_resp and llm_resp.completion_text:
-            rewritten_query = llm_resp.completion_text.strip()
-            logger.info(f"查询已重写：'{original_query}' -> '{rewritten_query}'")
-            return rewritten_query
-        else:
-            logger.warning("查询重写 Provider 返回了空内容，将使用原始查询。")
-            return original_query
-    except Exception as e:
-        logger.error(f"查询重写时出错: {e}", exc_info=True)
-        return original_query
-
-
 async def query_ragflow(plugin: "RAGFlowAdapterPlugin", query: str) -> str:
     """
     使用给定的查询与 RAGFlow API 进行交互，并返回拼接好的上下文。
