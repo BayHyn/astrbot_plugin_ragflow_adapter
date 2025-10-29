@@ -33,33 +33,33 @@
         "default": "system_prompt"
     },
     "rag_archive_enabled": {
-        "description": "[归档] 是否启用对话自动归档功能",
+        "description": "[TODO] 是否启用对话自动归档功能",
         "type": "bool",
         "default": false
     },
     "rag_archive_dataset_id": {
-        "description": "[归档] 用于存放对话文档的数据集 ID",
+        "description": "[TODO] 用于存放对话文档的数据集 ID",
         "type": "string",
         "default": ""
     },
     "rag_archive_threshold": {
-        "description": "[归档] 触发归档的消息数量阈值 (也是单次归档的消息数)",
+        "description": "[TODO] 触发归档的消息数量阈值 (也是单次归档的消息数)",
         "type": "int",
         "default": 40
     },
     "rag_archive_summarize_enabled": {
-        "description": "[归档] 上传前是否调用 LLM 进行总结",
+        "description": "[TODO] 上传前是否调用 LLM 进行总结",
         "type": "bool",
         "default": false
     },
     "rag_archive_summarize_persona_id": {
-        "description": "[归档] 用于总结的 Persona 人格 ID",
+        "description": "[TODO] 用于总结的 Persona 人格 ID",
         "type": "string",
         "default": "",
         "_special": "select_persona"
     },
     "rag_archive_summarize_provider_id": {
-        "description": "[归档] 用于总结的 LLM Provider",
+        "description": "[TODO] 用于总结的 LLM Provider",
         "type": "string",
         "default": "",
         "_special": "select_provider"
