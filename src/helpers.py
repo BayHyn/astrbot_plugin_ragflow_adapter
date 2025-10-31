@@ -97,5 +97,42 @@ async def archive_conversation(plugin: "RAGFlowAdapterPlugin", event: AstrMessag
     将当前会话的近期对话历史进行归档。
     """
     logger.info(f"触发了会话 {event.get_session_id()} 的归档流程。")
-    # TODO: 实现获取对话历史、总结、上传的逻辑
+    
+    try:
+        # 获取会话ID
+        session_id = event.get_session_id()
+        
+        # 获取当前对话ID
+        conversation_id = await plugin.context.conversation_manager.get_curr_conversation_id(session_id)
+        if not conversation_id:
+            logger.warning(f"会话 {session_id} 没有找到对应的对话ID，跳过归档。")
+            return
+            
+        # 获取对话对象
+        conversation = await plugin.context.conversation_manager.get_conversation(session_id, conversation_id)
+        if not conversation:
+            logger.warning(f"会话 {session_id} 的对话 {conversation_id} 不存在，跳过归档。")
+            return
+            
+        # 解析历史记录
+        import json
+        history = json.loads(conversation.history)
+        
+        # 获取最近的 rag_archive_threshold 条消息
+        threshold = plugin.rag_archive_threshold
+        recent_messages = history[-threshold:] if len(history) > threshold else history
+        
+        logger.info(f"会话 {session_id} 准备归档最近 {len(recent_messages)} 条消息（阈值: {threshold}）：")
+        
+        # 打印每条消息
+        for i, msg in enumerate(recent_messages):
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            # 截断过长的内容以便日志显示
+            display_content = content[:200] + "..." if len(content) > 200 else content
+            logger.info(f"  [{i+1}] {role}: {display_content}")
+            
+    except Exception as e:
+        logger.error(f"获取会话 {event.get_session_id()} 的对话历史时发生错误: {e}", exc_info=True)
+    
     await asyncio.sleep(1)  # 模拟异步操作

@@ -73,6 +73,7 @@ class RAGFlowAdapterPlugin(Star):
 
         # 打印日志
         logger.info("RAGFlow 适配器插件已初始化。")
+        logger.info("=== RAGFlow 适配器配置 ===")
         logger.info(f"  RAGFlow API 地址: {self.ragflow_base_url}")
         logger.info(
             f"  RAGFlow API Key: {helpers.mask_sensitive_info(self.ragflow_api_key)}")
@@ -99,6 +100,7 @@ class RAGFlowAdapterPlugin(Star):
                     f"      总结 Persona: {self.rag_archive_summarize_persona_id or '未指定'}")
                 logger.info(
                     f"      总结 Provider: {self.rag_archive_summarize_provider_id or '未指定'}")
+        logger.info("========================")
 
     def _setup_rewriter(self):
         """初始化查询重写管理器"""
@@ -162,7 +164,7 @@ class RAGFlowAdapterPlugin(Star):
             session_id = event.get_session_id()
             count = self.session_message_counts.get(session_id, 0) + 1
             self.session_message_counts[session_id] = count
-            logger.debug(
+            logger.info(
                 f"会话 '{session_id}' 消息计数: {count}/{self.rag_archive_threshold}")
 
             if count >= self.rag_archive_threshold:
